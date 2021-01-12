@@ -236,6 +236,7 @@ void CRouteServConn::HandlePdu(CImPdu* pPdu)
             _HandleMsgData(pPdu);
             break;
         case CID_SWITCH_P2P_CMD:
+			// route_server转发的点对点消息
             _HandleP2PMsg(pPdu );
             break;
         case CID_OTHER_LOGIN_STATUS_NOTIFY:
@@ -348,10 +349,12 @@ void CRouteServConn::_HandleP2PMsg(CImPdu* pPdu)
 	CImUser* pToImUser = CImUserManager::GetInstance()->GetImUserById(to_user_id);
     
  	if (pFromImUser) {
+		// 广播给发送者的其它登录端
  		pFromImUser->BroadcastPdu(pPdu);
 	}
     
  	if (pToImUser) {
+		// 广播给接收者的所有端
  		pToImUser->BroadcastPdu(pPdu);
 	}
 }

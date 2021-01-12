@@ -65,7 +65,7 @@ private:
     
     bool 			m_bValidate;
     
-    map<uint32_t /* handle */, CMsgConn*>	m_conn_map;
+    map<uint32_t /* handle */, CMsgConn*>	m_conn_map; // 该账号的所有登录连接
     set<CMsgConn*> m_unvalidate_conn_set;
 };
 
@@ -97,8 +97,8 @@ public:
     
     void BroadcastPdu(CImPdu* pdu, uint32_t client_type_flag);
 private:
-    ImUserMap_t m_im_user_map;
-    ImUserMapByName_t m_im_user_map_by_name;
+    ImUserMap_t m_im_user_map; // <id, CImUser*>
+    ImUserMapByName_t m_im_user_map_by_name; // <loginname, CImUser*>
 };
 
 void get_online_user_info(list<user_stat_t>* online_user_info);

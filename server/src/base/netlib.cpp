@@ -76,6 +76,7 @@ int netlib_send(net_handle_t handle, void* buf, int len)
 
 int netlib_recv(net_handle_t handle, void* buf, int len)
 {
+	// 找到pSocket pSocket 引用计数+1
 	CBaseSocket* pSocket = FindBaseSocket(handle);
 	if (!pSocket)
 		return NETLIB_ERROR;

@@ -150,6 +150,7 @@ bool CMessageModel::sendMessage(uint32_t nRelateId, uint32_t nFromId, uint32_t n
         if (bRet)
         {
             uint32_t nNow = (uint32_t) time(NULL);
+			// 接收方来自发送方的未读消息+1
             incMsgCount(nFromId, nToId);
         }
         else
@@ -270,6 +271,7 @@ uint32_t CMessageModel::getMsgId(uint32_t nRelateId)
  */
 void CMessageModel::getLastMsg(uint32_t nFromId, uint32_t nToId, uint32_t& nMsgId, string& strMsgData, IM::BaseDefine::MsgType& nMsgType, uint32_t nStatus)
 {
+	// 消息分表的key
     uint32_t nRelateId = CRelationModel::getInstance()->getRelationId(nFromId, nToId, false);
     
     if (nRelateId != INVALID_VALUE)
@@ -380,6 +382,7 @@ void CMessageModel::getMsgByMsgId(uint32_t nUserId, uint32_t nPeerId, const list
             }
         }
 
+		// 查消息记录中指定消息
         string strSql = "select * from " + strTableName + " where relateId=" + int2string(nRelateId) + "  and status=0 and msgId in (" + strClause + ") order by created desc, id desc limit 100";
         CResultSet* pResultSet = pDBConn->ExecuteQuery(strSql.c_str());
         if (pResultSet)
@@ -409,6 +412,7 @@ void CMessageModel::getMsgByMsgId(uint32_t nUserId, uint32_t nPeerId, const list
             log("no result set for sql:%s", strSql.c_str());
         }
         pDBManager->RelDBConn(pDBConn);
+		// 读消息列表中的语音消息
         if(!lsMsg.empty())
         {
             CAudioModel::getInstance()->readAudios(lsMsg);

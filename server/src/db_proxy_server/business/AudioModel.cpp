@@ -140,6 +140,7 @@ int CAudioModel::saveAudioInfo(uint32_t nFromId, uint32_t nToId, uint32_t nCreat
     int nAudioId = -1;
     
 	CHttpClient httpClient;
+	// http上传
 	string strPath = httpClient.UploadByteFile(m_strFileSite, pRealData, nRealLen);
 	if (!strPath.empty())
     {
@@ -148,6 +149,7 @@ int CAudioModel::saveAudioInfo(uint32_t nFromId, uint32_t nToId, uint32_t nCreat
         if (pDBConn)
         {
             uint32_t nStartPos = 0;
+			// db记录http路径
             string strSql = "insert into IMAudio(`fromId`, `toId`, `path`, `size`, `duration`, `created`) "\
             "values(?, ?, ?, ?, ?, ?)";
             replace_mark(strSql, nFromId, nStartPos);
@@ -158,6 +160,7 @@ int CAudioModel::saveAudioInfo(uint32_t nFromId, uint32_t nToId, uint32_t nCreat
             replace_mark(strSql, nCreateTime, nStartPos);
             if (pDBConn->ExecuteUpdate(strSql.c_str()))
             {
+				// last_insert_id
                 nAudioId = pDBConn->GetInsertId();
                 log("audioId=%d", nAudioId);
             } else

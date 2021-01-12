@@ -23,6 +23,7 @@ static CImConn* FindImConn(ConnMap_t* imconn_map, net_handle_t handle)
 	return pConn;
 }
 
+// epoll 检测到事件后的回调
 void imconn_callback(void* callback_data, uint8_t msg, uint32_t handle, void* pParam)
 {
 	NOTUSED_ARG(handle);
@@ -32,6 +33,7 @@ void imconn_callback(void* callback_data, uint8_t msg, uint32_t handle, void* pP
 		return;
 
 	ConnMap_t* conn_map = (ConnMap_t*)callback_data;
+	// 找到连接，conn引用计数+1
 	CImConn* pConn = FindImConn(conn_map, handle);
 	if (!pConn)
 		return;
@@ -57,6 +59,7 @@ void imconn_callback(void* callback_data, uint8_t msg, uint32_t handle, void* pP
 		break;
 	}
 
+	// pConn引用计数-1
 	pConn->ReleaseRef();
 }
 
@@ -120,6 +123,7 @@ int CImConn::Send(void* data, int len)
 	return len;
 }
 
+// 读pb数据
 void CImConn::OnRead()
 {
 	for (;;)
@@ -129,6 +133,7 @@ void CImConn::OnRead()
 			m_in_buf.Extend(READ_BUF_SIZE);
 
 		int ret = netlib_recv(m_handle, m_in_buf.GetBuffer() + m_in_buf.GetWriteOffset(), READ_BUF_SIZE);
+		// 读完数据或被信号中断
 		if (ret <= 0)
 			break;
 
@@ -141,10 +146,12 @@ void CImConn::OnRead()
     CImPdu* pPdu = NULL;
 	try
     {
+		// 循环处理完整的pb包
 		while ( ( pPdu = CImPdu::ReadPdu(m_in_buf.GetBuffer(), m_in_buf.GetWriteOffset()) ) )
 		{
             uint32_t pdu_len = pPdu->GetLength();
             
+			// 1. msg_server处理客户端协议使用CMsgConn::HandlePdu
 			HandlePdu(pPdu);
 
 			m_in_buf.Read(NULL, pdu_len);

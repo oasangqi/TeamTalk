@@ -2,7 +2,7 @@
 #include "EventDispatch.h"
 
 typedef hash_map<net_handle_t, CBaseSocket*> SocketMap;
-SocketMap	g_socket_map;
+SocketMap	g_socket_map; // 全局scoket map，<fd, CBaseSocket*>
 
 void AddBaseSocket(CBaseSocket* pSocket)
 {
@@ -80,7 +80,9 @@ int CBaseSocket::Listen(const char* server_ip, uint16_t port, callback_t callbac
 
 	log("CBaseSocket::Listen on %s:%d", server_ip, port);
 
+	// <fd,this> 加入全局map
 	AddBaseSocket(this);
+	// 注册读事件
 	CEventDispatch::Instance()->AddEvent(m_socket, SOCKET_READ | SOCKET_EXCEP);
 	return NETLIB_OK;
 }
@@ -91,6 +93,7 @@ net_handle_t CBaseSocket::Connect(const char* server_ip, uint16_t port, callback
 
 	m_remote_ip = server_ip;
 	m_remote_port = port;
+	// 1. msg_server连db_proxy_server回调为imconn_callback 参数为g_db_server_conn_map
 	m_callback = callback;
 	m_callback_data = callback_data;
 
@@ -106,14 +109,16 @@ net_handle_t CBaseSocket::Connect(const char* server_ip, uint16_t port, callback
 	sockaddr_in serv_addr;
 	_SetAddr(server_ip, port, &serv_addr);
 	int ret = connect(m_socket, (sockaddr*)&serv_addr, sizeof(serv_addr));
+	// 非阻塞时的非错误情况(对端listen buff满)
 	if ( (ret == SOCKET_ERROR) && (!_IsBlock(_GetErrorCode())) )
 	{	
 		log("connect failed, err_code=%d", _GetErrorCode());
 		closesocket(m_socket);
 		return NETLIB_INVALID_HANDLE;
 	}
-	m_state = SOCKET_STATE_CONNECTING;
+	m_state = SOCKET_STATE_CONNECTING;  // 标记为正在连接
 	AddBaseSocket(this);
+	// 连接成功时会触发写事件
 	CEventDispatch::Instance()->AddEvent(m_socket, SOCKET_ALL);
 	
 	return (net_handle_t)m_socket;
@@ -160,10 +165,12 @@ int CBaseSocket::Close()
 	return 0;
 }
 
+// epoll检测到fd读事件的处理
 void CBaseSocket::OnRead()
 {
 	if (m_state == SOCKET_STATE_LISTENING)
 	{
+		// listen fd
 		_AcceptNewSocket();
 	}
 	else
@@ -175,6 +182,7 @@ void CBaseSocket::OnRead()
 		}
 		else
 		{
+			// 客户端连接读回调为imconn_callback
 			m_callback(m_callback_data, NETLIB_MSG_READ, (net_handle_t)m_socket, NULL);
 		}
 	}
@@ -329,6 +337,7 @@ void CBaseSocket::_AcceptNewSocket()
 		log("AcceptNewSocket, socket=%d from %s:%d\n", fd, ip_str, port);
 
 		pSocket->SetSocket(fd);
+		// 对于msg_server上的新客户端连接, m_callback回调为msg_serv_callback
 		pSocket->SetCallback(m_callback);
 		pSocket->SetCallbackData(m_callback_data);
 		pSocket->SetState(SOCKET_STATE_CONNECTED);
@@ -338,7 +347,9 @@ void CBaseSocket::_AcceptNewSocket()
 		_SetNoDelay(fd);
 		_SetNonblock(fd);
 		AddBaseSocket(pSocket);
+		// 连接fd 侦听读事件
 		CEventDispatch::Instance()->AddEvent(fd, SOCKET_READ | SOCKET_EXCEP);
+		// msg_serv_callback将修改回调...
 		m_callback(m_callback_data, NETLIB_MSG_CONNECT, (net_handle_t)fd, NULL);
 	}
 }

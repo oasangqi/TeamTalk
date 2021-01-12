@@ -101,7 +101,7 @@ namespace DB_PROXY {
             uint32_t nMsgLen = msg.msg_data().length();
             
             uint32_t nNow = (uint32_t)time(NULL);
-            if (IM::BaseDefine::MsgType_IsValid(nMsgType))
+            if (IM::BaseDefine::MsgType_IsValid(nMsgType)) // 合法消息类型
             {
                 if(nMsgLen != 0)
                 {
@@ -113,7 +113,7 @@ namespace DB_PROXY {
 
                     CMessageModel* pMsgModel = CMessageModel::getInstance();
                     CGroupMessageModel* pGroupMsgModel = CGroupMessageModel::getInstance();
-                    if(nMsgType == IM::BaseDefine::MSG_TYPE_GROUP_TEXT) {
+                    if(nMsgType == IM::BaseDefine::MSG_TYPE_GROUP_TEXT) { // 群消息
                         CGroupModel* pGroupModel = CGroupModel::getInstance();
                         if (pGroupModel->isValidateGroupId(nToId) && pGroupModel->isInGroup(nFromId, nToId))
                         {
@@ -136,7 +136,7 @@ namespace DB_PROXY {
                             delete pPduResp;
                             return;
                         }
-                    } else if (nMsgType == IM::BaseDefine::MSG_TYPE_GROUP_AUDIO) {
+                    } else if (nMsgType == IM::BaseDefine::MSG_TYPE_GROUP_AUDIO) { // 群语音
                         CGroupModel* pGroupModel = CGroupModel::getInstance();
                         if (pGroupModel->isValidateGroupId(nToId)&& pGroupModel->isInGroup(nFromId, nToId))
                         {
@@ -160,8 +160,9 @@ namespace DB_PROXY {
                             delete pPduResp;
                             return;
                         }
-                    } else if(nMsgType== IM::BaseDefine::MSG_TYPE_SINGLE_TEXT) {
+                    } else if(nMsgType== IM::BaseDefine::MSG_TYPE_SINGLE_TEXT) { // 消息
                         if (nFromId != nToId) {
+							// 从db取sessionId对
                             nSessionId = CSessionModel::getInstance()->getSessionId(nFromId, nToId, IM::BaseDefine::SESSION_TYPE_SINGLE, false);
                             if (INVALID_VALUE == nSessionId) {
                                 nSessionId = CSessionModel::getInstance()->addSession(nFromId, nToId, IM::BaseDefine::SESSION_TYPE_SINGLE);
@@ -171,13 +172,16 @@ namespace DB_PROXY {
                             {
                                 nSessionId = CSessionModel::getInstance()->addSession(nToId, nFromId, IM::BaseDefine::SESSION_TYPE_SINGLE);
                             }
+							// 消息分表key
                             uint32_t nRelateId = CRelationModel::getInstance()->getRelationId(nFromId, nToId, true);
                             if(nSessionId != INVALID_VALUE && nRelateId != INVALID_VALUE)
                             {
                                 nMsgId = pMsgModel->getMsgId(nRelateId);
                                 if(nMsgId != INVALID_VALUE)
                                 {
+									// 插入一条消息
                                     pMsgModel->sendMessage(nRelateId, nFromId, nToId, nMsgType, nCreateTime, nMsgId, (string&)msg.msg_data());
+									// 更新session对
                                     CSessionModel::getInstance()->updateSession(nSessionId, nNow);
                                     CSessionModel::getInstance()->updateSession(nPeerSessionId, nNow);
                                 }
@@ -195,7 +199,7 @@ namespace DB_PROXY {
                             log("send msg to self. fromId=%u, toId=%u, msgType=%u", nFromId, nToId, nMsgType);
                         }
                         
-                    } else if(nMsgType == IM::BaseDefine::MSG_TYPE_SINGLE_AUDIO) {
+                    } else if(nMsgType == IM::BaseDefine::MSG_TYPE_SINGLE_AUDIO) { // 语音
                         
                         if(nFromId != nToId)
                         {
@@ -334,6 +338,7 @@ namespace DB_PROXY {
                 {
                     string strMsg;
                     IM::BaseDefine::MsgType nMsgType;
+					// 从db获取最新的一条消息
                     CMessageModel::getInstance()->getLastMsg(nUserId, nPeerId, nMsgId, strMsg, nMsgType, 1);
                 }
                 else

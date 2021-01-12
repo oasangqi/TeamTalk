@@ -28,7 +28,7 @@ using namespace IM::BaseDefine;
 #define TIMEOUT_WAITING_MSG_DATA_ACK	15000	// 15 seconds
 #define LOG_MSG_STAT_INTERVAL			300000	// log message miss status in every 5 minutes;
 #define MAX_MSG_CNT_PER_SECOND			20	// user can not send more than 20 msg in one second
-static ConnMap_t g_msg_conn_map;
+static ConnMap_t g_msg_conn_map; // 全局连接对象 <fd, CMsgConn*>
 static UserMap_t g_msg_conn_user_map;
 
 static uint64_t	g_last_stat_tick;	// 上次显示丢包率信息的时间
@@ -129,7 +129,7 @@ void CMsgConn::SendUserStatusUpdate(uint32_t user_status)
         return;
     }
     
-    // 只有上下线通知才通知LoginServer
+    // 只有上下线通知才通知LoginServer、route_server
     if (user_status == ::IM::BaseDefine::USER_STATUS_ONLINE) {
         IM::Server::IMUserCntUpdate msg;
         msg.set_user_action(USER_CNT_INC);
@@ -206,11 +206,13 @@ void CMsgConn::Close(bool kick_user)
 void CMsgConn::OnConnect(net_handle_t handle)
 {
 	m_handle = handle;
-	m_login_time = get_tick_count();
+	m_login_time = get_tick_count(); // 时间戳
 
-	g_msg_conn_map.insert(make_pair(handle, this));
+	g_msg_conn_map.insert(make_pair(handle, this)); // 加入全局容器
 
+	// 修改回调
 	netlib_option(handle, NETLIB_OPT_SET_CALLBACK, (void*)imconn_callback);
+	// 修改回调参数(用于通过fd找到CMsgConn*)
 	netlib_option(handle, NETLIB_OPT_SET_CALLBACK_DATA, (void*)&g_msg_conn_map);
 	netlib_option(handle, NETLIB_OPT_GET_REMOTE_IP, (void*)&m_peer_ip);
 	netlib_option(handle, NETLIB_OPT_GET_REMOTE_PORT, (void*)&m_peer_port);
@@ -280,25 +282,35 @@ void CMsgConn::HandlePdu(CImPdu* pPdu)
             _HandleHeartBeat(pPdu);
             break;
         case CID_LOGIN_REQ_USERLOGIN:
+			// 登录
+			// 由db_proxy_server做登录校验并发回用户信息
             _HandleLoginRequest(pPdu );
             break;
         case CID_LOGIN_REQ_LOGINOUT:
+			// 登出
+			// 会清掉deviceToken???
             _HandleLoginOutRequest(pPdu);
             break;
         case CID_LOGIN_REQ_DEVICETOKEN:
+			// APP端设置deviceToken
             _HandleClientDeviceToken(pPdu);
             break;
         case CID_LOGIN_REQ_KICKPCCLIENT:
             _HandleKickPCClient(pPdu);
             break;
         case CID_LOGIN_REQ_PUSH_SHIELD:
+			// 修改push_shield_status
+			// update IMUser set `push_shield_status`=
             _HandlePushShieldRequest(pPdu);
             break;
             
         case CID_LOGIN_REQ_QUERY_PUSH_SHIELD:
+			// 获取push_shield_status
+			// select push_shield_status from IMUser where id=
             _HandleQueryPushShieldRequest(pPdu);
             break;
         case CID_MSG_DATA:
+			// 发送消息(文本、语音、群文本、群语音)
             _HandleClientMsgData(pPdu);
             break;
         case CID_MSG_DATA_ACK:
@@ -323,6 +335,7 @@ void CMsgConn::HandlePdu(CImPdu* pPdu)
             _HandleClientGetLatestMsgIDReq(pPdu);
             break;
         case CID_SWITCH_P2P_CMD:
+			// 透传消息?
             _HandleClientP2PCmdMsg(pPdu );
             break;
         case CID_BUDDY_LIST_RECENT_CONTACT_SESSION_REQUEST:
@@ -418,6 +431,7 @@ void CMsgConn::_HandleLoginRequest(CImPdu* pPdu)
     
 }
     if (result) {
+		// 登录失败
         IM::Login::IMLoginRes msg;
         msg.set_server_time(time(NULL));
         msg.set_result_code((IM::BaseDefine::ResultType)result);
@@ -446,16 +460,20 @@ void CMsgConn::_HandleLoginRequest(CImPdu* pPdu)
     m_online_status = online_status;
     log("HandleLoginReq, user_name=%s, status=%u, client_type=%u, client=%s, ",
         m_login_name.c_str(), online_status, m_client_type, m_client_version.c_str());
+	// 通过登录名取用户对象(多端登录对应同一个)
     CImUser* pImUser = CImUserManager::GetInstance()->GetImUserByLoginName(GetLoginName());
     if (!pImUser) {
         pImUser = new CImUser(GetLoginName());
         CImUserManager::GetInstance()->AddImUserByLoginName(GetLoginName(), pImUser);
     }
+	// 本次登录标记为未认证
     pImUser->AddUnValidateMsgConn(this);
     
+	// 关联数据，用于从db_proxy_server收数据后回复客户端?
     CDbAttachData attach_data(ATTACH_TYPE_HANDLE, m_handle, 0);
     // continue to validate if the user is OK
     
+	// 交由db_proxy_server验证密码
     IM::Server::IMValidateReq msg2;
     msg2.set_user_name(msg.user_name());
     msg2.set_password(password);
@@ -754,15 +772,18 @@ void CMsgConn::_HandleClientP2PCmdMsg(CImPdu* pPdu)
 	CImUser* pToImUser = CImUserManager::GetInstance()->GetImUserById(to_user_id);
     
 	if (pFromImUser) {
+		// 广播给发送者的其它登录端
 		pFromImUser->BroadcastPdu(pPdu, this);
 	}
     
 	if (pToImUser) {
+		// 广播给接收者的所有端
 		pToImUser->BroadcastPdu(pPdu, NULL);
 	}
     
 	CRouteServConn* pRouteConn = get_route_serv_conn();
 	if (pRouteConn) {
+		// 转发给route_server
 		pRouteConn->SendPdu(pPdu);
 	}
 }

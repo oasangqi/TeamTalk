@@ -80,15 +80,15 @@ int main(int argc, char* argv[])
  
     pAes = new CAes(str_aes_key);
     
-	// 必须至少配置2个BusinessServer实例, 一个用于用户登录业务，一个用于其他业务
+	// 必须至少配置2个db_proxy_server实例, 一个用于用户登录业务，一个用于其他业务
 	// 这样当其他业务量非常繁忙时，也不会影响客服端的登录验证
-	// 建议配置4个实例，这样更新BusinessServer时，不会影响业务
+	// 建议配置4个实例，这样更新db_proxy_server时，不会影响业务
 	if (db_server_count < 2) {
 		log("DBServerIP need 2 instance at lest ");
 		return 1;
 	}
 
-	// 到BusinessServer的开多个并发的连接
+	// 到每个db_proxy_server并发的连接
 	uint32_t concurrent_db_conn_cnt = DEFAULT_CONCURRENT_DB_CONN_CNT;
 	uint32_t db_server_count2 = db_server_count * DEFAULT_CONCURRENT_DB_CONN_CNT;
 	char* concurrent_db_conn = config_file.GetConfigName("ConcurrentDBConnCnt");

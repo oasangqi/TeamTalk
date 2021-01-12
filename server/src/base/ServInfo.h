@@ -28,6 +28,7 @@ void serv_init(serv_info_t* server_list, uint32_t server_count)
 {
 	for (uint32_t i = 0; i < server_count; i++) {
 		T* pConn = new T();
+		// 1. msg_server 连接db_proxy_server执行CDBServConn::Connect
 		pConn->Connect(server_list[i].server_ip.c_str(), server_list[i].server_port, i);
 		server_list[i].serv_conn = pConn;
 		server_list[i].idle_cnt = 0;

@@ -26,11 +26,11 @@
 #include "public_define.h"
 using namespace IM::BaseDefine;
 
-static ConnMap_t g_db_server_conn_map;
+static ConnMap_t g_db_server_conn_map; // 与db_proxy_server的连接容器 <fd, CDBServConn*>
 
-static serv_info_t* g_db_server_list = NULL;
-static uint32_t		g_db_server_count = 0;			// 到DBServer的总连接数
-static uint32_t		g_db_server_login_count = 0;	// 到进行登录处理的DBServer的总连接数
+static serv_info_t* g_db_server_list = NULL; // db_proxy_server信息
+static uint32_t		g_db_server_count = 0;			// 与db_proxy_server的总连接数 (db_proxy_server个数 * 与每个db_proxy_server的连接数)
+static uint32_t		g_db_server_login_count = 0;	// db_proxy_server的连接中可用于登录认证的个数
 static CGroupChat*	s_group_chat = NULL;
 static CFileHandler* s_file_handler = NULL;
 
@@ -64,12 +64,14 @@ void init_db_serv_conn(serv_info_t* server_list, uint32_t server_count, uint32_t
 	g_db_server_count = server_count;
 
 	uint32_t total_db_instance = server_count / concur_conn_cnt;
+	// 一半连接用于登录认证
 	g_db_server_login_count = (total_db_instance / 2) * concur_conn_cnt;
 	log("DB server connection index for login business: [0, %u), for other business: [%u, %u) ",
 			g_db_server_login_count, g_db_server_login_count, g_db_server_count);
 
 	serv_init<CDBServConn>(g_db_server_list, g_db_server_count);
 
+	// 注册timer，定时保活、注销
 	netlib_register_timer(db_server_conn_timer_callback, NULL, 1000);
 	s_group_chat = CGroupChat::GetInstance();
 	s_file_handler = CFileHandler::getInstance();
@@ -95,6 +97,7 @@ static CDBServConn* get_db_server_conn_in_range(uint32_t start_pos, uint32_t sto
 	}
 
 	// return a random valid DB server connection
+	// TODO: 每条连接设置计数器，每次取计数最小的
 	while (true) {
 		int i = rand() % (stop_pos - start_pos) + start_pos;
 		pDbConn = (CDBServConn*)g_db_server_list[i].serv_conn;
@@ -161,6 +164,7 @@ void CDBServConn::Close()
 		g_db_server_conn_map.erase(m_handle);
 	}
 
+	// 引用计数-1，为0时析构自己
 	ReleaseRef();
 }
 
@@ -179,6 +183,7 @@ void CDBServConn::OnClose()
 
 void CDBServConn::OnTimer(uint64_t curr_tick)
 {
+	// 与db_proxy_server心跳保活
 	if (curr_tick > m_last_send_tick + SERVER_HEARTBEAT_INTERVAL) {
         IM::Other::IMHeartBeat msg;
         CImPdu pdu;
@@ -188,27 +193,32 @@ void CDBServConn::OnTimer(uint64_t curr_tick)
 		SendPdu(&pdu);
 	}
 
+	// 从db_proxy_server收包超时
 	if (curr_tick > m_last_recv_tick + SERVER_TIMEOUT) {
 		log("conn to db server timeout");
 		Close();
 	}
 }
 
+// msg_server处理从db_proxy_server收到的协议
 void CDBServConn::HandlePdu(CImPdu* pPdu)
 {
 	switch (pPdu->GetCommandId()) {
         case CID_OTHER_HEARTBEAT:
             break;
         case CID_OTHER_VALIDATE_RSP:
+			// 登录校验结果返回
             _HandleValidateResponse(pPdu );
             break;
         case CID_LOGIN_RES_DEVICETOKEN:
             _HandleSetDeviceTokenResponse(pPdu);
             break;
         case CID_LOGIN_RES_PUSH_SHIELD:
+			// 修改push_shield_status返回
             _HandlePushShieldResponse(pPdu);
             break;
         case CID_LOGIN_RES_QUERY_PUSH_SHIELD:
+			// 获取push_shield_status返回
             _HandleQueryPushShieldResponse(pPdu);
             break;
         case CID_MSG_UNREAD_CNT_RESPONSE:
@@ -221,6 +231,7 @@ void CDBServConn::HandlePdu(CImPdu* pPdu)
             _HandleGetMsgByIdResponse(pPdu);
             break;
         case CID_MSG_DATA:
+			// 发送消息结果
             _HandleMsgData(pPdu);
             break;
         case CID_MSG_GET_LATEST_MSG_ID_RSP:
@@ -298,6 +309,7 @@ void CDBServConn::_HandleValidateResponse(CImPdu* pPdu)
         log("ImUser for user_name=%s not exist", login_name.c_str());
         return;
     } else {
+		// 找到本次登录认证关联的连接
         pMsgConn = pImUser->GetUnValidateMsgConn(attach_data.GetHandle());
         if (!pMsgConn || pMsgConn->IsOpen()) {
             log("no such conn is validated, user_name=%s", login_name.c_str());
@@ -332,12 +344,15 @@ void CDBServConn::_HandleValidateResponse(CImPdu* pPdu)
         pUser->SetUserId(user_id);
         pUser->SetNickName(user_info.user_nick_name());
         pUser->SetValidated();
+		// 登录成功后可通过user_id找到用户
         CImUserManager::GetInstance()->AddImUserById(user_id, pUser);
         
+		// 多端登录的限制可在此扩展
         pUser->KickOutSameClientType(pMsgConn->GetClientType(), IM::BaseDefine::KICK_REASON_DUPLICATE_USER, pMsgConn);
         
         CRouteServConn* pRouteConn = get_route_serv_conn();
         if (pRouteConn) {
+			// 通知route_server转发多端登录限制处理
             IM::Server::IMServerKickUser msg2;
             msg2.set_user_id(user_id);
             msg2.set_client_type((::IM::BaseDefine::ClientType)pMsgConn->GetClientType());
@@ -352,9 +367,11 @@ void CDBServConn::_HandleValidateResponse(CImPdu* pPdu)
         log("user_name: %s, uid: %d", login_name.c_str(), user_id);
         pMsgConn->SetUserId(user_id);
         pMsgConn->SetOpen();
+		// 上下线消息通知login_server、route_server
         pMsgConn->SendUserStatusUpdate(IM::BaseDefine::USER_STATUS_ONLINE);
         pUser->ValidateMsgConn(pMsgConn->GetHandle(), pMsgConn);
         
+		// 登录成功返回信息
         IM::Login::IMLoginRes msg3;
         msg3.set_server_time(time(NULL));
         msg3.set_result_code(IM::BaseDefine::REFUSE_REASON_NONE);
@@ -381,6 +398,7 @@ void CDBServConn::_HandleValidateResponse(CImPdu* pPdu)
     }
     else
     {
+		// 发回登录结果
         IM::Login::IMLoginRes msg4;
         msg4.set_server_time(time(NULL));
         msg4.set_result_code((IM::BaseDefine::ResultType)result);
@@ -489,6 +507,7 @@ void CDBServConn::_HandleMsgData(CImPdu *pPdu)
     IM::Message::IMMsgData msg;
     CHECK_PB_PARSE_MSG(msg.ParseFromArray(pPdu->GetBodyData(), pPdu->GetBodyLength()));
     if (CHECK_MSG_TYPE_GROUP(msg.msg_type())) {
+		// 群消息处理
         s_group_chat->HandleGroupMessage(pPdu);
         return;
     }
@@ -510,6 +529,7 @@ void CDBServConn::_HandleMsgData(CImPdu *pPdu)
     CMsgConn* pMsgConn = CImUserManager::GetInstance()->GetMsgConnByHandle(from_user_id, attach_data.GetHandle());
     if (pMsgConn)
     {
+		// 消息发送成功，回复发送端
         IM::Message::IMMsgDataAck msg2;
         msg2.set_user_id(from_user_id);
         msg2.set_msg_id(msg_id);
@@ -525,6 +545,7 @@ void CDBServConn::_HandleMsgData(CImPdu *pPdu)
     
     CRouteServConn* pRouteConn = get_route_serv_conn();
     if (pRouteConn) {
+		// 转发给route_server进行跨msg_server的转发
         pRouteConn->SendPdu(pPdu);
     }
     
@@ -534,10 +555,12 @@ void CDBServConn::_HandleMsgData(CImPdu *pPdu)
     CImUser* pToImUser = CImUserManager::GetInstance()->GetImUserById(to_user_id);
     pPdu->SetSeqNum(0);
     if (pFromImUser) {
+		// 广播给发送者的其它登录连接
         pFromImUser->BroadcastClientMsgData(pPdu, msg_id, pMsgConn, from_user_id);
     }
 
     if (pToImUser) {
+		// 广播给接收者的其它登录连接
         pToImUser->BroadcastClientMsgData(pPdu, msg_id, NULL, from_user_id);
     }
     

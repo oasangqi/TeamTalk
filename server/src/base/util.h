@@ -41,7 +41,7 @@ public:
 	void ReleaseRef();
 private:
 	int				m_refCount;
-	CLock*	m_lock;
+	CLock*	m_lock; // 线程锁对象
 };
 
 #define LOG_MODULE_IM         "IM"

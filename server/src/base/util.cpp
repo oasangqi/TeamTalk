@@ -6,7 +6,7 @@ CSLog g_imlog = CSLog(LOG_MODULE_IM);
 
 CRefObject::CRefObject()
 {
-	m_lock = NULL;
+	m_lock = NULL; // 不加线程锁
 	m_refCount = 1;
 }
 

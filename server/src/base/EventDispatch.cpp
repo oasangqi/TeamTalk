@@ -41,6 +41,7 @@ CEventDispatch::~CEventDispatch()
 void CEventDispatch::AddTimer(callback_t callback, void* user_data, uint64_t interval)
 {
 	list<TimerItem*>::iterator it;
+	// 已有timer的超时更新
 	for (it = m_timer_list.begin(); it != m_timer_list.end(); it++)
 	{
 		TimerItem* pItem = *it;
@@ -52,6 +53,7 @@ void CEventDispatch::AddTimer(callback_t callback, void* user_data, uint64_t int
 		}
 	}
 
+	// 链表尾部新增timer
 	TimerItem* pItem = new TimerItem;
 	pItem->callback = callback;
 	pItem->user_data = user_data;
@@ -335,7 +337,7 @@ void CEventDispatch::StopDispatch()
 void CEventDispatch::AddEvent(SOCKET fd, uint8_t socket_event)
 {
 	struct epoll_event ev;
-	ev.events = EPOLLIN | EPOLLOUT | EPOLLET | EPOLLPRI | EPOLLERR | EPOLLHUP;
+	ev.events = EPOLLIN | EPOLLOUT | EPOLLET | EPOLLPRI | EPOLLERR | EPOLLHUP; // 边缘触发、默认读写事件均侦听
 	ev.data.fd = fd;
 	if (epoll_ctl(m_epfd, EPOLL_CTL_ADD, fd, &ev) != 0)
 	{

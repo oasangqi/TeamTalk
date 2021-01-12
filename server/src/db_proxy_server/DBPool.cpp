@@ -247,6 +247,7 @@ CResultSet* CDBConn::ExecuteQuery(const char* sql_query)
 {
 	mysql_ping(m_mysql);
 
+	// TODO:api返回值未判断
 	if (mysql_real_query(m_mysql, sql_query, strlen(sql_query))) {
 		log("mysql_real_query failed: %s, sql: %s", mysql_error(m_mysql), sql_query);
 		return NULL;
